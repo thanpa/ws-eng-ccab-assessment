@@ -38,10 +38,37 @@ async function chargeFailsWhenNoBalanceTest() {
     assert.strictEqual(response.body.remainingBalance, 10, "Property does not match expected value");
 }
 
+async function raceConditionTest() {
+    try {
+      await app.post("/reset").send({"account": "test"}).expect(204);
+
+      const numberOfRequests = 10;
+      const promises = Array.from({ length: numberOfRequests }, () => {
+        return app.post('/charge')
+          .send({
+            "account": "test",
+            "charges": 15
+          })
+          .expect(200);
+      });
+      const responses = await Promise.all(promises);
+
+      const errorMessage = "The balance was changed between calls, please retry";
+      const hasErrorMessage = responses.some(response => response.body.error === errorMessage);
+  
+      assert(hasErrorMessage, `None of the responses contain the error message: ${errorMessage}`);
+  
+      console.log('Test passed!');
+    } catch (error) {
+      console.error('Test failed:', error);
+    }
+  }
+  
 async function runTests() {
     await basicLatencyTest();
     await chargeTest();
     await chargeFailsWhenNoBalanceTest();
+    await raceConditionTest();
 }
 
 runTests().catch(console.error);

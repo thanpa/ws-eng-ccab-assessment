@@ -1,13 +1,13 @@
 import express from "express";
-import { createClient } from "redis";
+import { createClient, WatchError} from "redis";
 import { json } from "body-parser";
-
 const DEFAULT_BALANCE = 100;
 
 interface ChargeResult {
     isAuthorized: boolean;
     remainingBalance: number;
     charges: number;
+    error: any;
 }
 
 async function connect(): Promise<ReturnType<typeof createClient>> {
@@ -29,22 +29,22 @@ async function reset(account: string): Promise<void> {
 
 async function charge(account: string, charges: number): Promise<ChargeResult> {
     const client = await connect();
+    const balanceKey = `${account}/balance`
     try {
-        const balanceKey = `${account}/balance`
         await client.watch(balanceKey);
         const balance = parseInt((await client.get(balanceKey)) ?? "");
         if (balance >= charges) {
             const remainingBalance = balance - charges;
             const multi = client.multi();
             multi.set(balanceKey, remainingBalance);
-            const results = await multi.exec();
-            if (!results) {
-                return { isAuthorized: false, remainingBalance: balance, charges: 0 };
-            }
-            return { isAuthorized: true, remainingBalance, charges };
+            await multi.exec();
+            return { isAuthorized: true, remainingBalance, charges, error: null };
         } else {
-            return { isAuthorized: false, remainingBalance: balance, charges: 0 };
+            return { isAuthorized: false, remainingBalance: balance, charges: 0, error: null };
         }
+    } catch (error) {
+        const balance = parseInt((await client.get(balanceKey)) ?? "");
+        return { isAuthorized: false, remainingBalance: balance, charges: 0, error: "The balance was changed between calls, please retry" };
     } finally {
         await client.disconnect();
     }
